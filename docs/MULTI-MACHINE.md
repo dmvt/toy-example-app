@@ -150,7 +150,7 @@ curl https://toy-example-prod7.phala.network:8090/attestation | jq
 curl https://toy-example-prod9.phala.network:8090/compose-hash
 
 # Calculate from source
-sha256sum toy-example-app/enclave/docker-compose.yml | cut -d' ' -f1
+sha256sum enclave/docker-compose.yml | cut -d' ' -f1
 ```
 
 ## On-Chain Verification

@@ -10,7 +10,7 @@
 # 4. Updates enclave/src/version.ts
 # 5. Creates a git tag
 #
-# After running, push with: git push origin feat/toy-example-app --tags
+# After running, push with: git push origin main --tags
 
 set -e
 
@@ -126,6 +126,6 @@ echo ""
 echo "Created tag: $TAG_NAME"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  git push origin feat/toy-example-app --tags"
+echo "  git push origin main --tags"
 echo ""
 echo "This will trigger automatic deployment to prod7 and prod9."

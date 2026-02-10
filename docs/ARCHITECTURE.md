@@ -232,7 +232,7 @@ Git Push
     ▼
 ┌─────────────────┐
 │ GitHub Actions  │
-│ toy-build.yml   │
+│ build.yml   │
 └────────┬────────┘
          │
          ▼
@@ -249,7 +249,7 @@ Git Push
          │ (Manual trigger)
          ▼
 ┌─────────────────┐
-│ toy-deploy.yml  │
+│ deploy.yml  │
 │ Update compose  │
 └────────┬────────┘
          │

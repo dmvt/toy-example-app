@@ -5,25 +5,25 @@ This guide explains how to release a new version of the toy example enclave and 
 ## Prerequisites
 
 - Git access to the repository
-- Push access to `feat/toy-example-app` branch
+- Push access to `main` branch (or ability to merge PRs)
 - GitHub Actions secrets configured (for CI deployment)
 
 ## Version Upgrade Process
 
 ### Step 1: Make Your Changes
 
-1. Create a feature branch from `feat/toy-example-app`:
+1. Create a feature branch from `main`:
    ```bash
-   git checkout feat/toy-example-app
-   git pull origin feat/toy-example-app
-   git checkout -b feat/toy-example-app/my-feature
+   git checkout main
+   git pull origin main
+   git checkout -b feat/my-feature
    ```
 
-2. Make your code changes in `toy-example-app/enclave/src/`
+2. Make your code changes in `enclave/src/`
 
 3. Test locally if possible:
    ```bash
-   cd toy-example-app/enclave
+   cd enclave
    npm install
    npm run build
    npm start
@@ -35,13 +35,13 @@ Use the version bump script to update all version references:
 
 ```bash
 # For bug fixes (1.0.0 -> 1.0.1)
-./toy-example-app/scripts/bump-version.sh patch
+./scripts/bump-version.sh patch
 
 # For new features (1.0.0 -> 1.1.0)
-./toy-example-app/scripts/bump-version.sh minor
+./scripts/bump-version.sh minor
 
 # For breaking changes (1.0.0 -> 2.0.0)
-./toy-example-app/scripts/bump-version.sh major
+./scripts/bump-version.sh major
 ```
 
 The script will:
@@ -52,10 +52,10 @@ The script will:
 
 ### Step 3: Push to Trigger Deployment
 
-Push your changes and the tag to trigger automatic deployment:
+Merge your changes to `main` and push the tag to trigger automatic deployment:
 
 ```bash
-git push origin feat/toy-example-app --tags
+git push origin main --tags
 ```
 
 This will:
@@ -71,7 +71,7 @@ After deployment completes (~5-10 minutes), verify both instances:
 
 ```bash
 # Compare instances to prove same code is running
-./toy-example-app/scripts/compare-instances.sh \
+./scripts/compare-instances.sh \
   https://toy-example-prod9.phala.network \
   https://toy-example-prod7.phala.network
 ```
@@ -126,7 +126,7 @@ If you need to deploy manually (e.g., to a single cluster or for testing):
 
 ```bash
 # Trigger manual deployment via GitHub Actions
-gh workflow run toy-deploy.yml \
+gh workflow run deploy.yml \
   -f image_tag=abc1234 \
   -f environment=staging \
   -f cluster=prod9
@@ -134,7 +134,7 @@ gh workflow run toy-deploy.yml \
 
 Or use the Phala CLI directly:
 ```bash
-cd toy-example-app/enclave
+cd enclave
 phala deploy -c docker-compose.yml -n toy-example-staging --kms base
 ```
 
@@ -161,7 +161,7 @@ To rollback to a previous version:
 
 Check the GitHub Actions logs:
 ```bash
-gh run list --workflow=toy-build.yml
+gh run list --workflow=build.yml
 gh run view <run-id> --log
 ```
 
@@ -183,4 +183,4 @@ If `/version` shows wrong version:
 - [ARCHITECTURE.md](./ARCHITECTURE.md) - System design
 - [MULTI-MACHINE.md](./MULTI-MACHINE.md) - Multi-machine deployment
 - [VERIFICATION.md](./VERIFICATION.md) - Attestation verification
-- [../DEPLOYMENTS.md](../DEPLOYMENTS.md) - Deployment history
+- [DEPLOYMENTS.md](../DEPLOYMENTS.md) - Deployment history

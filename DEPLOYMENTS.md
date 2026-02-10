@@ -50,7 +50,7 @@ To verify a deployment:
 3. **Compare source code**:
    ```bash
    git checkout <commit-sha>
-   sha256sum toy-example-app/enclave/docker-compose.yml
+   sha256sum enclave/docker-compose.yml
    ```
 
 ## On-Chain Contract

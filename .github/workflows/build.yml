@@ -2,7 +2,7 @@
 #
 # Builds and pushes Docker images for both mock-api and enclave.
 # Triggered on:
-#   - Pushes to main and feat/toy-example-app branches
+#   - Pushes to main branch
 #   - Version tags (v*) for automatic deployment to prod5 and prod9
 #
 # Images are pushed to GHCR with commit SHA and version tags for traceability.
@@ -11,16 +11,19 @@ name: Build Toy Example
 
 on:
   push:
-    branches: [main, feat/toy-example-app]
+    branches: [main]
     paths:
-      - 'toy-example-app/**'
-      - '.github/workflows/toy-build.yml'
+      - 'enclave/**'
+      - 'mock-api/**'
+      - 'scripts/**'
+      - '.github/workflows/build.yml'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
-    branches: [main, feat/toy-example-app]
+    branches: [main]
     paths:
-      - 'toy-example-app/**'
+      - 'enclave/**'
+      - 'mock-api/**'
   workflow_dispatch:
     inputs:
       auto_deploy:
@@ -70,8 +73,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ./toy-example-app/mock-api
-          file: ./toy-example-app/mock-api/Dockerfile
+          context: ./mock-api
+          file: ./mock-api/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ steps.vars.outputs.image }}:latest
@@ -141,8 +144,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ./toy-example-app/enclave
-          file: ./toy-example-app/enclave/Dockerfile
+          context: ./enclave
+          file: ./enclave/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ steps.vars.outputs.image }}:latest
@@ -184,7 +187,7 @@ jobs:
 
           # Check for actual API call patterns to direct_messages endpoint
           # Looking for URL patterns, not documentation comments
-          if grep -rE '(/api/direct_messages|getDirectMessages|fetchDirectMessages|\.direct_messages)' toy-example-app/enclave/src/*.ts 2>/dev/null; then
+          if grep -rE '(/api/direct_messages|getDirectMessages|fetchDirectMessages|\.direct_messages)' enclave/src/*.ts 2>/dev/null; then
             echo "❌ FAIL: Found direct_messages API call patterns in enclave code" >> $GITHUB_STEP_SUMMARY
             exit 1
           else
@@ -192,7 +195,7 @@ jobs:
           fi
 
           # Also verify no fetch/http calls outside tiktok-client.ts reference direct_messages
-          NON_CLIENT_FILES=$(find toy-example-app/enclave/src -name "*.ts" ! -name "tiktok-client.ts")
+          NON_CLIENT_FILES=$(find enclave/src -name "*.ts" ! -name "tiktok-client.ts")
           for f in $NON_CLIENT_FILES; do
             if grep -E 'direct_message' "$f" | grep -vE '^[[:space:]]*//' | grep -q .; then
               echo "❌ FAIL: Non-comment direct_messages reference in $f" >> $GITHUB_STEP_SUMMARY
@@ -204,7 +207,7 @@ jobs:
       - name: Verify API calls are isolated
         run: |
           # Check that only tiktok-client.ts makes external API calls
-          FETCH_FILES=$(grep -rl "fetch\(" toy-example-app/enclave/src/ || true)
+          FETCH_FILES=$(grep -rl "fetch\(" enclave/src/ || true)
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### External API Call Analysis" >> $GITHUB_STEP_SUMMARY
@@ -251,6 +254,7 @@ jobs:
     needs: [summary, build-enclave]
     if: |
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
       needs.summary.outputs.all_success == 'true'
     environment: staging
 
@@ -266,7 +270,7 @@ jobs:
 
       - name: Update docker-compose with image tag
         run: |
-          cd toy-example-app/enclave
+          cd enclave
           sed -i "s|image:.*toy-example-enclave.*|image: ${{ steps.vars.outputs.enclave_image }}:${{ needs.build-enclave.outputs.sha_short }}|g" docker-compose.yml
           echo "Updated docker-compose.yml:"
           cat docker-compose.yml
@@ -274,7 +278,7 @@ jobs:
       - name: Calculate compose hash
         id: hash
         run: |
-          HASH=$(sha256sum toy-example-app/enclave/docker-compose.yml | cut -d' ' -f1)
+          HASH=$(sha256sum enclave/docker-compose.yml | cut -d' ' -f1)
           echo "compose_hash=$HASH" >> $GITHUB_OUTPUT
           echo "Compose hash: $HASH"
 
@@ -289,7 +293,7 @@ jobs:
       - name: Check if enclave files changed
         id: changes
         run: |
-          # Check if any files in toy-example-app/enclave changed since the last successful deploy
+          # Check if any files in enclave/ changed since the last successful deploy
           # We use git diff to compare with the parent commit
           # If only workflow or README changed, we can skip deployment
 
@@ -301,7 +305,7 @@ jobs:
           echo "$CHANGED_FILES"
 
           # Check if any enclave source files changed (excluding compose which changes every time)
-          ENCLAVE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^toy-example-app/enclave/(src/|Dockerfile|package|tsconfig)' || echo "")
+          ENCLAVE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^enclave/(src/|Dockerfile|package|tsconfig)' || echo "")
 
           if [ -n "$ENCLAVE_CHANGES" ]; then
             echo "Enclave source files changed:"
@@ -352,7 +356,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_PAT }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
         run: |
-          cd toy-example-app/enclave
+          cd enclave
 
           CVM_NAME="toy-example-staging"
 
@@ -449,7 +453,7 @@ jobs:
 
       - name: Update docker-compose with image tag
         run: |
-          cd toy-example-app/enclave
+          cd enclave
 
           # Update image tag only - cluster is selected via --node-id
           sed -i "s|image:.*toy-example-enclave.*|image: ${{ steps.vars.outputs.enclave_image }}:${{ needs.build-enclave.outputs.sha_short }}|g" docker-compose.yml
@@ -460,7 +464,7 @@ jobs:
       - name: Calculate compose hash
         id: hash
         run: |
-          HASH=$(sha256sum toy-example-app/enclave/docker-compose.yml | cut -d' ' -f1)
+          HASH=$(sha256sum enclave/docker-compose.yml | cut -d' ' -f1)
           echo "compose_hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
@@ -496,7 +500,7 @@ jobs:
           NODE_ID_PROD5: ${{ secrets.TOY_NODE_ID_PROD5 }}
           NODE_ID_PROD9: ${{ secrets.TOY_NODE_ID_PROD9 }}
         run: |
-          cd toy-example-app/enclave
+          cd enclave
 
           CVM_NAME="toy-example-${{ matrix.cluster }}"
 
@@ -588,7 +592,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: feat/toy-example-app
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set variables
@@ -615,8 +619,8 @@ jobs:
         run: |
           # Use absolute paths to avoid directory navigation issues
           ROOT_DIR="${GITHUB_WORKSPACE}"
-          DEPLOYMENTS_FILE="${ROOT_DIR}/toy-example-app/DEPLOYMENTS.md"
-          ENCLAVE_DIR="${ROOT_DIR}/toy-example-app/enclave"
+          DEPLOYMENTS_FILE="${ROOT_DIR}/DEPLOYMENTS.md"
+          ENCLAVE_DIR="${ROOT_DIR}/enclave"
           VERSION="${{ steps.vars.outputs.version }}"
           TIMESTAMP="${{ steps.vars.outputs.timestamp }}"
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -676,14 +680,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add toy-example-app/DEPLOYMENTS.md
+          git add DEPLOYMENTS.md
           git commit -m "chore: record deployments v${{ steps.vars.outputs.version }}
 
           Version: ${{ steps.vars.outputs.version }}
           Machines: prod5, prod9
 
           Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>" || echo "No changes to commit"
-          git push origin feat/toy-example-app
+          git push origin main
 
       - name: Record consolidation summary
         run: |

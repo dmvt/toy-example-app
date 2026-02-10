@@ -1,127 +1,186 @@
-# Xordi Release Process
+# Toy Example App
 
-Release process documentation for the Xordi TikTok data collection enclave running on Phala Cloud dstack.
+A simplified dstack application demonstrating the complete TEE release process end-to-end. This app proves an enclave can receive full API credentials but only access safe endpoints - with hardware attestation and on-chain transparency logging as evidence.
 
-## Documents
+## Purpose
 
-| File | Purpose |
-|------|---------|
-| [VERIFICATION-REPORT.md](docs/VERIFICATION-REPORT.md) | Current attestation status, gaps, trust boundaries |
-| [RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md) | Prescriptive release process with transparency requirements |
-| [TWEET-CONTENT.md](docs/TWEET-CONTENT.md) | Ready-to-post announcement content |
-| [deploy-xordi.yml](docs/workflows/deploy-xordi.yml) | GitHub Actions CI/CD template |
-
-## Current Deployment
-
-- **App ID:** `8b7f9f28fde9764b483ac987c68f3321cb7276b0`
-- **Trust Center:** https://trust.phala.com/app/8b7f9f28fde9764b483ac987c68f3321cb7276b0
-- **Metadata:** https://8b7f9f28fde9764b483ac987c68f3321cb7276b0-8090.dstack-pha-prod9.phala.network/
+This toy app demonstrates:
+- **Selective API access**: Enclave receives credentials for both safe and sensitive endpoints, but code only calls safe endpoints
+- **Hardware attestation**: Intel TDX proves exactly what code is running
+- **On-chain transparency**: Every deployment logged to Base blockchain via KMS
+- **Verifiable builds**: Docker images tagged with commit SHA for reproducibility
 
 ---
 
-## Action Items by Person
+## Release Checklist
 
-### LSDan
+**Purpose:** Prescriptive release process ensuring transparency and attestation for every deployment.
 
-- [ ] **Create simplified toy example app** - Andrew was explicit: "generalized comes later" - build a simplified dstack app FIRST that:
-  - Runs a mock TikTok API with two endpoints: `watch_history` (safe) and `direct_messages` (bad)
-  - Has an enclave that gets full credentials but can ONLY access the safe endpoint
-  - Demonstrates the complete release process end-to-end
-  - This becomes the template for generalizing later
-
-- [x] **Remove `.well-known/attestation` gap from VERIFICATION-REPORT.md** - Not applicable to Xordi since users never directly contact the server (only Archive calls it). The 8090 metadata service already provides attestation data.
-
-- [x] **Simplify trust boundaries diagram in VERIFICATION-REPORT.md** - Remove "Archive" and everything below the trust boundary line. Focus only on the cryptographically verified TCB.
-
-- [ ] **Continue scanning Telegram** for Andrew's notes/gaps - he'll drop thoughts as they occur
-
-### Ian
-
-- [ ] **Fork/clone this repo** into Xordi repos - own the Xordi-specific version going forward
-
-- [ ] **Make Docker images public** - Current images on `ghcr.io/ognodefather/...` are private. Can stay on GHCR, just make public.
-
-- [ ] **Build CI/CD pipeline** - Convert manual release process to automated GitHub Actions. "Pipeline wouldn't be hard."
-
-- [ ] **Implement user count attestation** - Count encrypted cookie entries in database, sign with enclave. Proves number of users without exposing usernames.
-
-- [ ] **Vegas trip** - Install PSU on rack for power redundancy (data center power anomaly issues)
-
-### Andrew
-
-- [ ] **Continue "hater mode"** - Probing for gaps in other projects (Near, Signal) to identify patterns
-
-- [ ] **Drop Telegram notes** when gaps/requirements come to mind
-
-- [ ] **Red team analysis** - Validate constraints by checking: "Could I satisfy these constraints while still stealing DMs?"
-
-### Claude
-
-- [x] Create separate repo with release docs
-- [x] Apply doc updates (`.well-known/attestation`, trust diagram) when instructed
-- [ ] Do NOT update deployment data without instruction
+**Key Principle:** A deployment is NOT complete until transparency logging is verified.
 
 ---
 
-## Path Dependencies (Critical Ordering)
+### Pre-Release Checklist
+
+#### 1. Code Preparation
+
+- [x] All changes committed to `feat/toy-example-app` branch
+- [x] Record the commit SHA: `8736a98a6a8d8c4162b8cc981b73a4e138497069`
+- [x] Verify CI passes
+- [x] No secrets in source code (secrets injected via Phala Cloud)
+
+#### 2. Docker Image Build
+
+- [x] Build image with SHA tag (automated via GitHub Actions)
+- [x] Push to GHCR: `ghcr.io/account-link/toy-example-enclave:8736a98`
+- [x] Record image digest: `sha256:73f9eaae5374cc9d86de57e160ae1c777224f4e841d8de25cdb3bc2ab09043d7`
+
+#### 3. Pre-Deployment Verification
+
+- [x] Verify `docker-compose.yml` uses correct image tag
+- [x] Verify KMS configuration is Base (not Pha)
+- [x] Verify no sensitive environment variables are hardcoded
+
+---
+
+### Deployment Checklist
+
+#### 4. Deploy to Phala Cloud
+
+**CRITICAL: Using Base on-chain KMS for transparency logging**
+
+- [x] Deployment command executed successfully
+- [x] Record CVM ID: `54c37bd6-297b-4371-8eb8-e6bf6f983336`
+- [x] Record App ID: `04bf9758873466bb2bd8f85621858d99e33f58fd`
+
+#### 5. Post-Deployment Health Check
+
+- [x] Service is responding: https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network/health
+- [x] Basic functionality verified (watch-history endpoint works)
+- [x] No error logs in deployment
+
+---
+
+### Transparency Verification (MANDATORY)
+
+**A deployment is NOT complete until these steps are verified.**
+
+#### 6. Trust Center Verification
+
+- [x] Visit Trust Center: https://trust.phala.com/app/04bf9758873466bb2bd8f85621858d99e33f58fd
+- [x] Verification status shows "Completed"
+- [x] All 30 data objects verified (App, KMS, Gateway)
+- [x] Attestation timestamp (01:40:01 UTC) is after deployment time (01:34:05 UTC)
+
+#### 7. On-Chain Transparency Log (REQUIRED)
+
+- [x] **Using Base KMS**: Compose hash updates logged on Base blockchain
+- [x] KMS Contract: `0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C` (Base mainnet)
+- [ ] Verify upgrade event on Base blockchain explorer
+
+#### 8. Chain of Trust Record
+
+| Item | Value |
+|------|-------|
+| Git Commit SHA | `8736a98a6a8d8c4162b8cc981b73a4e138497069` |
+| Docker Image Tag | `ghcr.io/account-link/toy-example-enclave:8736a98` |
+| Docker Image Digest | `sha256:73f9eaae5374cc9d86de57e160ae1c777224f4e841d8de25cdb3bc2ab09043d7` |
+| App ID | `04bf9758873466bb2bd8f85621858d99e33f58fd` |
+| CVM ID | `54c37bd6-297b-4371-8eb8-e6bf6f983336` |
+| Trust Center URL | https://trust.phala.com/app/04bf9758873466bb2bd8f85621858d99e33f58fd |
+| On-Chain TX Hash | _pending verification_ |
+| Deployment Timestamp | 2026-01-27T01:34:05Z |
+| KMS | Base (kms-base-prod9) |
+| TEEPod | prod9 (US-WEST-1) |
+
+---
+
+### Post-Release Checklist
+
+#### 9. Update Documentation
+
+- [x] Verification documentation created (`docs/VERIFICATION.md`)
+- [ ] Create GitHub Release with attestation proof attached
+- [x] Tutorial and architecture docs created
+
+#### 10. Code Audit Verification
+
+- [x] `grep -r "direct_message" enclave/src/` returns nothing
+- [x] All external API calls isolated to `tiktok-client.ts`
+- [x] CI verifies no direct_messages API calls on every build
+
+---
+
+## Live Deployment
+
+| Endpoint | URL |
+|----------|-----|
+| Enclave | https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network |
+| Attestation | https://04bf9758873466bb2bd8f85621858d99e33f58fd-8090.dstack-base-prod9.phala.network |
+| Mock API | https://toy.dstack.info |
+| Dashboard | https://cloud.phala.com/dashboard/cvms/54c37bd6-297b-4371-8eb8-e6bf6f983336 |
+
+---
+
+## Architecture
 
 ```
-1. Simplified toy example app    →  BEFORE  →  Generalized docs
-2. Base KMS + reproducible builds  →  FIRST   →  Everything else
-3. Images public                 →  BEFORE  →  External verification possible
-4. User count attestation        →  BEFORE  →  Full consent flow
+┌─────────────────────────────────────────────────────────────────┐
+│                        EXTERNAL (Untrusted)                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Mock TikTok API (toy.dstack.info)                              │
+│  ├── GET /api/watch_history  ← SAFE (enclave calls this)        │
+│  └── GET /api/direct_messages ← SENSITIVE (enclave NEVER calls) │
+├─────────────────────────────────────────────────────────────────┤
+│                      TEE BOUNDARY (Trusted)                      │
+├─────────────────────────────────────────────────────────────────┤
+│  Enclave Application (Intel TDX on dstack prod9)                │
+│  ├── Receives: Full API credentials                             │
+│  ├── Calls: ONLY /api/watch_history                             │
+│  ├── Exposes: /health, /watch-history, /signup, /signup-count   │
+│  └── Attestation: Port 8090 (dstack metadata service)           │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Andrew explicitly said:** "Generalized is even harder to get to... a simplified DStack app that has the release process... that would be a really good way to make progress without being stuck on exactly the Xordi-specific issues."
+---
+
+## Quick Verification
+
+```bash
+# Verify the running enclave matches source
+./scripts/verify-attestation.sh https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network
+
+# Verify no direct_messages code in enclave
+grep -r "direct_message" enclave/src/
+# Should return NOTHING
+
+# Test the enclave endpoints
+curl https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network/health
+curl https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network/watch-history
+```
 
 ---
 
-## Key Decisions from Jan 10 Call
+## Documentation
 
-| Decision | Rationale |
-|----------|-----------|
-| `.well-known/attestation` NOT needed | Users never directly contact server; 8090 metadata already provides this |
-| Focus TCB only in diagram | Exclude Borg Cube, Archive - they're outside attestation boundary |
-| Simplified toy example FIRST | Before generalizing - proves the pattern works |
-| User count attestation FIRST | Simpler than full consent language flow |
-| Consent served from TEE | Future enhancement - similar to Boo Magic Show signup |
+- [docs/VERIFICATION.md](docs/VERIFICATION.md) - How to verify attestation
+- [docs/TUTORIAL.md](docs/TUTORIAL.md) - Newcomer guide to TEE/dstack
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design
+- [docs/RED-TEAM.md](docs/RED-TEAM.md) - Security audit guide
+- [docs/UPGRADE-GUIDE.md](docs/UPGRADE-GUIDE.md) - Release new versions
+- [docs/MULTI-MACHINE.md](docs/MULTI-MACHINE.md) - Multi-cluster deployment
+- [DEPLOYMENTS.md](DEPLOYMENTS.md) - Deployment history
 
----
+### Xordi Release Process Documents
 
-## The Core Constraint
-
-From Andrew:
-
-> "The goal is to say we have some process for validating but even if someone follows that process to validate we would still be able to steal DMs from users TikTok accounts"
-
-The release process must prove that for the claimed number of users, during the claimed time period, the running code was **incapable** of accessing DMs.
-
-**Retrospective audit framing:** "We want to be able to show in March what we did during January and February" - even if the app is shut down, the audit trail should prove we never could have stolen DMs.
-
-**What we CAN prove:**
-- Exact code running matches published source (attestation)
-- Code runs in hardware isolation (Intel TDX)
-- Number of users whose credentials were processed
-- Every compose hash update on the Base contract
-
-**What requires code audit:**
-- That the code only calls watch history APIs, not DM APIs
-- `grep -r "direct_message" src/` returns nothing
+- [docs/VERIFICATION-REPORT.md](docs/VERIFICATION-REPORT.md) - Attestation status and trust boundaries
+- [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md) - Prescriptive release process
+- [docs/TWEET-CONTENT.md](docs/TWEET-CONTENT.md) - Announcement content
 
 ---
 
-## Immediate Priority (The "Zero Step")
+## Remaining Work
 
-1. **Move to Base KMS** - Switch from Pha KMS to Base on-chain KMS for transparency logging. "The one thing that needs to change" (Andrew, Dec 30).
-
-2. **Reproducible builds** - Ensure tagged commits match Docker image digests. Verify builds work across machines.
-
-3. **Make images public** - So external parties can verify docker-compose points to inspectable images.
-
----
-
-## Related Repos
-
-- **Xordi Source:** https://github.com/Account-Link/teleport-tokscope (branch: `tokscope-xordi-perf`)
-- **dstack Tutorial:** https://github.com/amiller/dstack-tutorial
-- **Hermes (reference):** https://github.com/amiller/hermes
+- [x] Verify Trust Center shows completed attestation
+- [ ] Verify on-chain TX hash for Base KMS transparency log
+- [ ] Set up friendly domain (e.g., `enclave.toy.dstack.info`)

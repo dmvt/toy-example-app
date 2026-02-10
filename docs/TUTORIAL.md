@@ -78,7 +78,7 @@ cd toy-example-app
 
 Look at the structure:
 ```
-toy-example-app/
+.
 ├── mock-api/     # The "TikTok" API with safe and sensitive endpoints
 ├── enclave/      # The TEE app that only uses safe endpoints
 ├── scripts/      # Verification tools

@@ -60,14 +60,14 @@ jobs:
 
       - name: Update docker-compose with image tag
         run: |
-          cd toy-example-app/enclave
+          cd enclave
           sed -i "s|image:.*toy-example-enclave.*|image: ${{ steps.vars.outputs.enclave_image }}:${{ inputs.image_tag }}|g" docker-compose.yml
           cat docker-compose.yml
 
       - name: Calculate compose hash
         id: hash
         run: |
-          HASH=$(sha256sum toy-example-app/enclave/docker-compose.yml | cut -d' ' -f1)
+          HASH=$(sha256sum enclave/docker-compose.yml | cut -d' ' -f1)
           echo "compose_hash=$HASH" >> $GITHUB_OUTPUT
           echo "Compose hash: $HASH"
 
@@ -75,7 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docker-compose
-          path: toy-example-app/enclave/docker-compose.yml
+          path: enclave/docker-compose.yml
 
   deploy-mock-api:
     runs-on: ubuntu-latest
@@ -188,7 +188,7 @@ jobs:
 
       - name: Run verification script
         run: |
-          chmod +x toy-example-app/scripts/verify-attestation.sh || true
+          chmod +x scripts/verify-attestation.sh || true
 
           echo "## Attestation Verification" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -196,7 +196,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Run the following to verify manually:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "./toy-example-app/scripts/verify-attestation.sh <enclave-url>" >> $GITHUB_STEP_SUMMARY
+          echo "./scripts/verify-attestation.sh <enclave-url>" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
   notify:

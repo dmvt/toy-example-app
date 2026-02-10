@@ -247,8 +247,8 @@ The `compare-instances.sh` script proves identical code by verifying:
 
 1. **`enclave/src/index.ts`** - Add `/version` endpoint
 2. **`enclave/Dockerfile`** - Inject build metadata as env vars
-3. **`.github/workflows/toy-build.yml`** - Support version tags, inject build metadata
-4. **`.github/workflows/toy-deploy.yml`** - Add environment parameter for multi-machine
+3. **`.github/workflows/build.yml`** - Support version tags, inject build metadata
+4. **`.github/workflows/deploy.yml`** - Add environment parameter for multi-machine
 5. **`README.md`** - Add version history table
 
 ### Interfaces
