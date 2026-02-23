@@ -6,6 +6,10 @@ A simplified dstack application demonstrating the complete TEE release process e
 
 This toy app demonstrates:
 - **Selective API access**: Enclave receives credentials for both safe and sensitive endpoints, but code only calls safe endpoints
+- **Falsifiable user-data claims**: Enclave processes sensitive data and emits only safe derivatives, with TEE-signed audit receipts
+- **Retrospective reporting**: Daily TEE-signed reports persisted to GitHub, verifiable offline
+- **Shared state across machines**: 3-CVM architecture (app + Postgres primary + replica) connected via dstack VPN
+- **On-chain deletion attestations**: User data purges posted to Base blockchain for verifiable proof
 - **Hardware attestation**: Intel TDX proves exactly what code is running
 - **On-chain transparency**: Every deployment logged to Base blockchain via KMS
 - **Verifiable builds**: Docker images tagged with commit SHA for reproducibility
@@ -106,7 +110,7 @@ This toy app demonstrates:
 #### 10. Code Audit Verification
 
 - [x] `grep -r "direct_message" enclave/src/` returns nothing
-- [x] All external API calls isolated to `tiktok-client.ts`
+- [x] All external calls isolated to allowlisted files (CI-enforced)
 - [x] CI verifies no direct_messages API calls on every build
 
 ---
@@ -125,21 +129,37 @@ This toy app demonstrates:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        EXTERNAL (Untrusted)                      │
-├─────────────────────────────────────────────────────────────────┤
-│  Mock TikTok API (toy.dstack.info)                              │
-│  ├── GET /api/watch_history  ← SAFE (enclave calls this)        │
-│  └── GET /api/direct_messages ← SENSITIVE (enclave NEVER calls) │
-├─────────────────────────────────────────────────────────────────┤
-│                      TEE BOUNDARY (Trusted)                      │
-├─────────────────────────────────────────────────────────────────┤
-│  Enclave Application (Intel TDX on dstack prod9)                │
-│  ├── Receives: Full API credentials                             │
-│  ├── Calls: ONLY /api/watch_history                             │
-│  ├── Exposes: /health, /watch-history, /signup, /signup-count   │
-│  └── Attestation: Port 8090 (dstack metadata service)           │
-└─────────────────────────────────────────────────────────────────┘
+External (Untrusted)              Trust Boundary (TCB) — 3 CVMs on dstack VPN
+                                  ┌─────────────────────────────────────────────────┐
+┌─────────────────┐               │                                                 │
+│ Mock TikTok API │               │  CVM 1: App Enclave (Phala Machine 1)           │
+│ :3000           │◄──fetch───────│  ├── Express :8080                              │
+│ ├─ /watch_hist  │               │  │   ├── /health, /version                     │
+│ └─ /direct_msgs │               │  │   ├── /watch-history (safe API call)         │
+└─────────────────┘               │  │   ├── /signup, /signup-count                 │
+                                  │  │   ├── /submit-data (user data flow)          │
+┌─────────────────┐               │  │   ├── /delete-data/:id (deletion attestation)│
+│ GitHub Actions  │──cron pull────│  │   ├── /report (generate retrospective)       │
+│ (daily cron)    │  GET /report  │  │   └── /reports (list all reports)            │
+│ ├─ Fetch report │               │  ├── Metadata :8090 (attestation)               │
+│ ├─ Commit to    │               │  └── Connects to CVM 2 via VPN                  │
+│ │  reports/     │               │                                                 │
+│ └─ Push to repo │               │         ┌──── WireGuard VPN ────┐               │
+└─────────────────┘               │         │   (dstack networking) │               │
+                                  │         │                      │               │
+┌─────────────────┐               │  CVM 2: Postgres Primary (Phala Machine 2)      │
+│ Base Blockchain │◄──on-chain────│  ├── Postgres :5432 (VPN-only, not public)      │
+│ KMS Contract    │  (deploys +   │  │   ├── signups, audit_log                     │
+│ 0x2f83...       │   deletions)  │  │   ├── user_data_receipts                     │
+└─────────────────┘               │  │   └── reports                                │
+                                  │  ├── LUKS-encrypted /data (keys from KMS)       │
+                                  │  └── Streams WAL to CVM 3 via VPN               │
+                                  │                                                 │
+                                  │  CVM 3: Postgres Replica (Phala Machine 3)      │
+                                  │  ├── Postgres :5432 (read-only, VPN-only)       │
+                                  │  ├── LUKS-encrypted /data (keys from KMS)       │
+                                  │  └── Metadata :8090 (attestation)               │
+                                  └─────────────────────────────────────────────────┘
 ```
 
 ---
@@ -153,6 +173,9 @@ This toy app demonstrates:
 # Verify no direct_messages code in enclave
 grep -r "direct_message" enclave/src/
 # Should return NOTHING
+
+# Verify a retrospective report
+./scripts/verify-report.sh reports/2026-02-23.json
 
 # Test the enclave endpoints
 curl https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.phala.network/health
@@ -184,3 +207,6 @@ curl https://04bf9758873466bb2bd8f85621858d99e33f58fd-8080.dstack-base-prod9.pha
 - [x] Verify Trust Center shows completed attestation
 - [ ] Verify on-chain TX hash for Base KMS transparency log
 - [ ] Set up friendly domain (e.g., `enclave.toy.dstack.info`)
+- [ ] Deploy 3-CVM architecture (app + pg-primary + pg-replica)
+- [ ] Implement ethers.js integration for on-chain deletion attestations
+- [ ] Verify daily report cron workflow end-to-end

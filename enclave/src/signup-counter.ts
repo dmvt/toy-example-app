@@ -3,14 +3,19 @@
 // Tracks how many "signups" have occurred and provides signed counts
 // for retrospective audit purposes.
 //
-// In production, the signing key would be derived from TEE attestation,
-// making the signature verifiable as coming from this specific enclave.
+// When DATABASE_URL is set, signups are persisted to Postgres.
+// Otherwise falls back to in-memory counter (dev mode).
 
-import { createHmac } from 'crypto';
+import { createHash, createHmac } from 'crypto';
 import { config } from './config';
+import { insertSignup, getSignupCount, insertAuditEntry } from './database';
 
-// In-memory counter (resets on restart - acceptable for demo)
-let signupCount = 0;
+let useDatabase = false;
+let inMemoryCount = 0;
+
+export function setDatabaseMode(enabled: boolean): void {
+  useDatabase = enabled;
+}
 
 export interface SignupCountResponse {
   count: number;
@@ -22,30 +27,39 @@ export interface SignupCountResponse {
  * Increment the signup counter.
  * Returns the new count.
  */
-export function incrementSignup(): number {
-  signupCount += 1;
-  console.log(`[Signup] Count incremented to ${signupCount}`);
-  return signupCount;
+export async function incrementSignup(userId?: string): Promise<number> {
+  if (useDatabase) {
+    const userIdHash = userId
+      ? createHash('sha256').update(userId).digest('hex')
+      : createHash('sha256').update(`anon_${Date.now()}`).digest('hex');
+
+    await insertSignup(userIdHash, config.cvmId);
+    await insertAuditEntry('signup', { userIdHash, sourceCvm: config.cvmId });
+
+    const count = await getSignupCount();
+    console.log(`[Signup] Count incremented to ${count} (database)`);
+    return count;
+  }
+
+  inMemoryCount += 1;
+  console.log(`[Signup] Count incremented to ${inMemoryCount} (in-memory)`);
+  return inMemoryCount;
 }
 
 /**
  * Get the current signup count with a cryptographic signature.
- *
- * The signature proves this count came from this enclave. In production,
- * the signing key is derived from TEE attestation, so the signature
- * can be verified against the attestation quote.
  */
-export function getSignedCount(): SignupCountResponse {
+export async function getSignedCount(): Promise<SignupCountResponse> {
+  const count = useDatabase ? await getSignupCount() : inMemoryCount;
   const timestamp = new Date().toISOString();
-  const message = `count:${signupCount}|timestamp:${timestamp}`;
+  const message = `count:${count}|timestamp:${timestamp}`;
 
-  // HMAC signature using the enclave's signing key
   const signature = createHmac('sha256', config.signingKey)
     .update(message)
     .digest('hex');
 
   return {
-    count: signupCount,
+    count,
     signature,
     timestamp,
   };
@@ -54,16 +68,6 @@ export function getSignedCount(): SignupCountResponse {
 /**
  * Get the raw count without signature (for internal use).
  */
-export function getCount(): number {
-  return signupCount;
-}
-
-/**
- * Reset the counter (for testing only).
- */
-export function resetCount(): void {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Cannot reset counter in production');
-  }
-  signupCount = 0;
+export async function getCount(): Promise<number> {
+  return useDatabase ? await getSignupCount() : inMemoryCount;
 }
