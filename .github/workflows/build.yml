@@ -277,9 +277,16 @@ jobs:
 
       - name: Set variables
         id: vars
+        env:
+          SIGNING_KEY: ${{ secrets.TOY_SIGNING_KEY }}
         run: |
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "enclave_image=ghcr.io/${OWNER_LC}/toy-example-enclave" >> $GITHUB_OUTPUT
+
+          # Derive a stable DB password from the signing key — no extra secret needed
+          DB_PASSWORD=$(echo -n "toy-db-password" | openssl dgst -sha256 -hmac "$SIGNING_KEY" | cut -d' ' -f2 | head -c 32)
+          echo "::add-mask::$DB_PASSWORD"
+          echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -325,7 +332,7 @@ jobs:
         if: steps.check_pg_primary.outputs.exists != 'true' || steps.changes.outputs.source_changed == 'true'
         env:
           PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
-          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
+          DB_PASSWORD: ${{ steps.vars.outputs.db_password }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
         run: |
           CVM_NAME="toy-pg-primary-staging"
@@ -391,7 +398,7 @@ jobs:
         if: steps.check_pg_replica.outputs.exists != 'true' || steps.changes.outputs.source_changed == 'true'
         env:
           PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
-          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
+          DB_PASSWORD: ${{ steps.vars.outputs.db_password }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
           PG_PRIMARY_VPN_IP: ${{ steps.pg_primary_info.outputs.pg_host }}
         run: |
@@ -464,7 +471,7 @@ jobs:
           MOCK_API_URL: ${{ secrets.TOY_MOCK_API_URL }}
           MOCK_API_TOKEN: ${{ secrets.TOY_MOCK_API_TOKEN }}
           SIGNING_KEY: ${{ secrets.TOY_SIGNING_KEY }}
-          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
+          DB_PASSWORD: ${{ steps.vars.outputs.db_password }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_PAT }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
