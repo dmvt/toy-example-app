@@ -1,6 +1,8 @@
 # Version Upgrade Flow & Multi-Machine Behavior
 
-**Status:** IMPLEMENTING
+**Status:** SUPERSEDED
+**Superseded By:** `docs/specs/toy-app-v3.md`
+**Superseded Reason:** Requirements evolved significantly in Feb 3 and Feb 9 dstack syncs. Andrew Miller requested retrospective reporting, falsifiable user-data claims, shared database between CVMs, and daily automated evidence generation — all of which contradict the "Must NOT Have" section of this spec.
 **Author:** LSDan
 **Created:** 2026-01-27
 **Last Updated:** 2026-01-27

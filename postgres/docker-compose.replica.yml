@@ -1,0 +1,46 @@
+# Postgres Replica CVM - Streaming replication from primary
+#
+# @spec docs/specs/toy-app-v3.md
+# @implements Requirement 3 (Shared Database via 3-CVM Architecture)
+#
+# Runs on Phala Machine 3. Read-only replica connected to primary via dstack VPN.
+# LUKS-encrypted /data volume with keys from KMS.
+
+services:
+  postgres-replica:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"  # Accessible only on VPN network
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data  # LUKS-encrypted volume
+    environment:
+      POSTGRES_DB: toyapp
+      POSTGRES_USER: enclave
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Replication configuration via environment
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: >
+      bash -c "
+        # If data directory is empty, initialize from primary via pg_basebackup
+        if [ ! -f /var/lib/postgresql/data/pgdata/PG_VERSION ]; then
+          echo 'Initializing replica from primary...'
+          pg_basebackup -h ${PG_PRIMARY_VPN_IP} -U enclave -D /var/lib/postgresql/data/pgdata -Fp -Xs -R -P
+        fi
+        # Start postgres in hot standby mode
+        exec postgres
+          -c hot_standby=on
+          -c primary_conninfo='host=${PG_PRIMARY_VPN_IP} port=5432 user=enclave password=${DB_PASSWORD}'
+          -c listen_addresses='*'
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enclave -d toyapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+x-dstack:
+  kms: base
+  resources:
+    memory: 1Gi
+    cpu: 1

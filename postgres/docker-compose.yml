@@ -1,0 +1,37 @@
+# Postgres Primary CVM - Deployed as its own dstack app
+#
+# @spec docs/specs/toy-app-v3.md
+# @implements Requirement 3 (Shared Database via 3-CVM Architecture)
+#
+# Runs on Phala Machine 2. App enclave (CVM 1) connects via dstack VPN.
+# LUKS-encrypted /data volume with keys from KMS.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"  # Accessible only on VPN network
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data  # LUKS-encrypted volume
+    environment:
+      POSTGRES_DB: toyapp
+      POSTGRES_USER: enclave
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    command: >
+      postgres
+        -c wal_level=replica
+        -c max_wal_senders=3
+        -c hot_standby=on
+        -c listen_addresses='*'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enclave -d toyapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+x-dstack:
+  kms: base
+  resources:
+    memory: 1Gi
+    cpu: 1

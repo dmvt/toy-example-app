@@ -11,6 +11,12 @@ export interface Config {
 
   // Signing key for attestation (in production, derived from TEE)
   signingKey: string;
+
+  // Database configuration
+  databaseUrl: string | undefined;
+
+  // CVM identifier (for multi-CVM tracking)
+  cvmId: string;
 }
 
 function getEnvOrDefault(key: string, defaultValue: string): string {
@@ -43,6 +49,12 @@ export function loadConfig(): Config {
 
     // Signing key - in production this would be derived from TEE attestation
     signingKey: getEnvOrDefault('SIGNING_KEY', 'dev-signing-key-not-for-production'),
+
+    // Database URL (optional in dev — falls back to in-memory if not set)
+    databaseUrl: process.env.DATABASE_URL,
+
+    // CVM identifier for multi-CVM tracking
+    cvmId: getEnvOrDefault('CVM_ID', 'local'),
   };
 }
 

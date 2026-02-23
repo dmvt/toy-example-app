@@ -204,9 +204,15 @@ jobs:
           done
           echo "✅ PASS: No non-comment direct_messages references outside tiktok-client.ts" >> $GITHUB_STEP_SUMMARY
 
-      - name: Verify API calls are isolated
+      - name: Verify API calls are isolated to allowlist
         run: |
-          # Check that only tiktok-client.ts makes external API calls
+          # Allowlist: files permitted to contain fetch() calls
+          # - tiktok-client.ts: Mock TikTok API (safe endpoint only)
+          # - deletion-attestation.ts: Base blockchain RPC (on-chain attestation)
+          # - report-generator.ts: localhost:8090 compose-hash (metadata service)
+          # - index.ts: localhost:8090 compose-hash in /version endpoint
+          ALLOWLIST="tiktok-client.ts|deletion-attestation.ts|report-generator.ts|index.ts"
+
           FETCH_FILES=$(grep -rl "fetch\(" enclave/src/ || true)
 
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -220,11 +226,17 @@ jobs:
             echo "$FETCH_FILES" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
-            # Verify only tiktok-client.ts
-            if echo "$FETCH_FILES" | grep -v "tiktok-client.ts"; then
-              echo "⚠️ WARNING: fetch() found in files other than tiktok-client.ts" >> $GITHUB_STEP_SUMMARY
+            # Check for fetch() in files NOT on the allowlist
+            VIOLATIONS=$(echo "$FETCH_FILES" | grep -vE "$ALLOWLIST" || true)
+            if [ -n "$VIOLATIONS" ]; then
+              echo "❌ FAIL: fetch() found in non-allowlisted files:" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              echo "$VIOLATIONS" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              exit 1
             else
-              echo "✅ All external API calls isolated to tiktok-client.ts" >> $GITHUB_STEP_SUMMARY
+              echo "✅ All external calls isolated to allowlisted files" >> $GITHUB_STEP_SUMMARY
+              echo "Allowlist: tiktok-client.ts, deletion-attestation.ts, report-generator.ts" >> $GITHUB_STEP_SUMMARY
             fi
           fi
 

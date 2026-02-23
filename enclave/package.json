@@ -8,15 +8,22 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
-  "keywords": ["tee", "enclave", "dstack", "attestation"],
+  "keywords": [
+    "tee",
+    "enclave",
+    "dstack",
+    "attestation"
+  ],
   "author": "Xordi Team",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "pg": "^8.18.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "@types/pg": "^8.16.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

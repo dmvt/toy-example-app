@@ -1,0 +1,60 @@
+# Pull Retrospective Report from Enclave
+#
+# @spec docs/specs/toy-app-v3.md
+# @implements Requirement 2 (Retrospective Report Generation)
+#
+# Daily cron job that fetches the report from the running enclave
+# and commits it to the repository. This preserves the trust boundary:
+# no GitHub tokens inside the enclave, no outbound calls besides the
+# mock API and on-chain attestations.
+
+name: Pull Retrospective Report
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  pull-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      - name: Fetch report from enclave
+        run: |
+          REPORT_FILE="reports/$(date +%Y-%m-%d).json"
+          HTTP_CODE=$(curl -sf -w "%{http_code}" -o "$REPORT_FILE" "${{ secrets.ENCLAVE_URL }}/report" || true)
+
+          if [ "$HTTP_CODE" != "200" ] || [ ! -s "$REPORT_FILE" ]; then
+            echo "::warning::Failed to fetch report (HTTP $HTTP_CODE). Enclave may be down."
+            rm -f "$REPORT_FILE"
+            exit 0
+          fi
+
+          echo "Report saved to $REPORT_FILE"
+          echo "report_file=$REPORT_FILE" >> $GITHUB_ENV
+
+      - name: Verify report signature
+        if: env.report_file != ''
+        run: |
+          chmod +x scripts/verify-report.sh
+          ./scripts/verify-report.sh "${{ env.report_file }}"
+
+      - name: Commit and push
+        if: env.report_file != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add reports/
+          git diff --cached --quiet && echo "No new report to commit" && exit 0
+          git commit -m "chore: daily retrospective report $(date +%Y-%m-%d)"
+          git push
