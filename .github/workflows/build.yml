@@ -261,6 +261,7 @@ jobs:
           echo "| Enclave | ${{ needs.build-enclave.result }} | ${{ needs.build-enclave.outputs.sha_short }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Verify | ${{ needs.verify-code.result }} | - |" >> $GITHUB_STEP_SUMMARY
 
+  # 3-CVM staging deployment: pg-primary → pg-replica → app enclave
   deploy:
     runs-on: ubuntu-latest
     needs: [summary, build-enclave]
@@ -274,13 +275,163 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set image name
+      - name: Set variables
         id: vars
         run: |
           OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "enclave_image=ghcr.io/${OWNER_LC}/toy-example-enclave" >> $GITHUB_OUTPUT
 
-      - name: Update docker-compose with image tag
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Phala CLI
+        run: npm install -g phala
+
+      - name: Check if source files changed
+        id: changes
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Check enclave or postgres changes
+          APP_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^(enclave/(src/|Dockerfile|package|tsconfig)|postgres/)' || echo "")
+          if [ -n "$APP_CHANGES" ]; then
+            echo "source_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "source_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # --- CVM 2: Postgres Primary ---
+      - name: Check if pg-primary CVM exists
+        id: check_pg_primary
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+        run: |
+          CVM_NAME="toy-pg-primary-staging"
+          INFO=$(phala cvms get "$CVM_NAME" --json 2>/dev/null || echo '{"success":false}')
+          if echo "$INFO" | jq -e '.success == true' > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            STATUS=$(echo "$INFO" | jq -r '.status // "unknown"')
+            echo "status=$STATUS" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy pg-primary
+        id: deploy_pg_primary
+        if: steps.check_pg_primary.outputs.exists != 'true' || steps.changes.outputs.source_changed == 'true'
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
+          PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
+        run: |
+          CVM_NAME="toy-pg-primary-staging"
+
+          if [ "${{ steps.check_pg_primary.outputs.exists }}" = "true" ]; then
+            DEPLOY_ARGS="--cvm-id $CVM_NAME --wait"
+          else
+            DEPLOY_ARGS="-n $CVM_NAME"
+          fi
+
+          phala deploy \
+            -c postgres/docker-compose.yml \
+            $DEPLOY_ARGS \
+            --kms base \
+            --private-key "$PRIVATE_KEY" \
+            -e DB_PASSWORD="$DB_PASSWORD" \
+            2>&1 | tee deploy-pg-primary.log
+
+          echo "deployed=true" >> $GITHUB_OUTPUT
+
+      - name: Get pg-primary network info
+        id: pg_primary_info
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+        run: |
+          echo "Waiting for pg-primary to be ready..."
+          sleep 10
+
+          CVM_NAME="toy-pg-primary-staging"
+          INFO=$(phala cvms get "$CVM_NAME" --json 2>/dev/null || echo '{}')
+          echo "$INFO" | jq . || true
+
+          # Extract the dstack gateway URL for VPN connectivity
+          # The app-id based URL format: <app-id>-<port>.dstack-base-<cluster>.phala.network
+          APP_ID=$(echo "$INFO" | jq -r '.app_id // .appId // empty' 2>/dev/null || echo "")
+          if [ -n "$APP_ID" ]; then
+            # Internal VPN address: CVMs on dstack can reach each other via gateway
+            PG_PRIMARY_HOST="${APP_ID}-5432.dstack-base-prod9.phala.network"
+            echo "pg_host=$PG_PRIMARY_HOST" >> $GITHUB_OUTPUT
+            echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+            echo "Postgres primary reachable at: $PG_PRIMARY_HOST"
+          else
+            echo "::warning::Could not extract pg-primary app_id. Using CVM name for VPN."
+            echo "pg_host=toy-pg-primary-staging" >> $GITHUB_OUTPUT
+          fi
+
+      # --- CVM 3: Postgres Replica ---
+      - name: Check if pg-replica CVM exists
+        id: check_pg_replica
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+        run: |
+          CVM_NAME="toy-pg-replica-staging"
+          INFO=$(phala cvms get "$CVM_NAME" --json 2>/dev/null || echo '{"success":false}')
+          if echo "$INFO" | jq -e '.success == true' > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy pg-replica
+        id: deploy_pg_replica
+        if: steps.check_pg_replica.outputs.exists != 'true' || steps.changes.outputs.source_changed == 'true'
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
+          PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
+          PG_PRIMARY_VPN_IP: ${{ steps.pg_primary_info.outputs.pg_host }}
+        run: |
+          CVM_NAME="toy-pg-replica-staging"
+
+          if [ "${{ steps.check_pg_replica.outputs.exists }}" = "true" ]; then
+            DEPLOY_ARGS="--cvm-id $CVM_NAME --wait"
+          else
+            DEPLOY_ARGS="-n $CVM_NAME"
+          fi
+
+          phala deploy \
+            -c postgres/docker-compose.replica.yml \
+            $DEPLOY_ARGS \
+            --kms base \
+            --private-key "$PRIVATE_KEY" \
+            -e DB_PASSWORD="$DB_PASSWORD" \
+            -e PG_PRIMARY_VPN_IP="$PG_PRIMARY_VPN_IP" \
+            2>&1 | tee deploy-pg-replica.log
+
+      - name: Get pg-replica network info
+        id: pg_replica_info
+        env:
+          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
+        run: |
+          sleep 5
+          CVM_NAME="toy-pg-replica-staging"
+          INFO=$(phala cvms get "$CVM_NAME" --json 2>/dev/null || echo '{}')
+
+          APP_ID=$(echo "$INFO" | jq -r '.app_id // .appId // empty' 2>/dev/null || echo "")
+          if [ -n "$APP_ID" ]; then
+            PG_REPLICA_HOST="${APP_ID}-5432.dstack-base-prod9.phala.network"
+            echo "pg_host=$PG_REPLICA_HOST" >> $GITHUB_OUTPUT
+            echo "Postgres replica reachable at: $PG_REPLICA_HOST"
+          else
+            echo "pg_host=toy-pg-replica-staging" >> $GITHUB_OUTPUT
+          fi
+
+      # --- CVM 1: App Enclave ---
+      - name: Update enclave docker-compose with image tag
         run: |
           cd enclave
           sed -i "s|image:.*toy-example-enclave.*|image: ${{ steps.vars.outputs.enclave_image }}:${{ needs.build-enclave.outputs.sha_short }}|g" docker-compose.yml
@@ -292,96 +443,46 @@ jobs:
         run: |
           HASH=$(sha256sum enclave/docker-compose.yml | cut -d' ' -f1)
           echo "compose_hash=$HASH" >> $GITHUB_OUTPUT
-          echo "Compose hash: $HASH"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Phala CLI
-        run: npm install -g phala
-
-      - name: Check if enclave files changed
-        id: changes
-        run: |
-          # Check if any files in enclave/ changed since the last successful deploy
-          # We use git diff to compare with the parent commit
-          # If only workflow or README changed, we can skip deployment
-
-          echo "Checking for enclave source changes..."
-
-          # Get list of changed files in this commit
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
-          echo "Changed files in this commit:"
-          echo "$CHANGED_FILES"
-
-          # Check if any enclave source files changed (excluding compose which changes every time)
-          ENCLAVE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^enclave/(src/|Dockerfile|package|tsconfig)' || echo "")
-
-          if [ -n "$ENCLAVE_CHANGES" ]; then
-            echo "Enclave source files changed:"
-            echo "$ENCLAVE_CHANGES"
-            echo "enclave_changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "No enclave source files changed"
-            echo "enclave_changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check if deployment needed
-        id: check
+      - name: Check if app enclave CVM exists
+        id: check_app
         env:
           PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
         run: |
-          echo "Checking deployment status..."
-
-          # Check if CVM exists
-          CURRENT_INFO=$(phala cvms get toy-example-staging --json 2>/dev/null || echo '{"success":false}')
-
-          if echo "$CURRENT_INFO" | jq -e '.success == true' > /dev/null 2>&1; then
-            CURRENT_STATUS=$(echo "$CURRENT_INFO" | jq -r '.status // "unknown"')
-            echo "CVM exists with status: $CURRENT_STATUS"
-            echo "cvm_exists=true" >> $GITHUB_OUTPUT
-
-            # If enclave source didn't change and CVM is running, skip deployment
-            if [ "${{ steps.changes.outputs.enclave_changed }}" = "false" ] && [ "$CURRENT_STATUS" = "running" ]; then
-              echo "Enclave source unchanged and CVM is running - skipping deployment"
-              echo "skip_deploy=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
+          CVM_NAME="toy-example-staging"
+          INFO=$(phala cvms get "$CVM_NAME" --json 2>/dev/null || echo '{"success":false}')
+          if echo "$INFO" | jq -e '.success == true' > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
           else
-            echo "No existing CVM found"
-            echo "cvm_exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-          echo "skip_deploy=false" >> $GITHUB_OUTPUT
-
-      - name: Deploy to Phala Cloud
+      - name: Deploy app enclave
         id: deploy
-        if: steps.check.outputs.skip_deploy != 'true'
         env:
           PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
           MOCK_API_URL: ${{ secrets.TOY_MOCK_API_URL }}
           MOCK_API_TOKEN: ${{ secrets.TOY_MOCK_API_TOKEN }}
           SIGNING_KEY: ${{ secrets.TOY_SIGNING_KEY }}
+          DB_PASSWORD: ${{ secrets.TOY_DB_PASSWORD }}
           GHCR_USERNAME: ${{ github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GHCR_PAT }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
         run: |
           cd enclave
-
           CVM_NAME="toy-example-staging"
 
-          # Use --cvm-id to upgrade existing CVM, or create new if doesn't exist
-          if [ "${{ steps.check.outputs.cvm_exists }}" = "true" ]; then
-            echo "Upgrading existing CVM..."
+          PG_PRIMARY_HOST="${{ steps.pg_primary_info.outputs.pg_host }}"
+          PG_REPLICA_HOST="${{ steps.pg_replica_info.outputs.pg_host }}"
+          DATABASE_URL="postgresql://enclave:${DB_PASSWORD}@${PG_PRIMARY_HOST}:5432/toyapp"
+          DATABASE_REPLICA_URL="postgresql://enclave:${DB_PASSWORD}@${PG_REPLICA_HOST}:5432/toyapp"
+
+          if [ "${{ steps.check_app.outputs.exists }}" = "true" ]; then
             DEPLOY_ARGS="--cvm-id $CVM_NAME --wait"
           else
-            echo "Creating new CVM..."
             DEPLOY_ARGS="-n $CVM_NAME"
           fi
 
-          # Deploy/upgrade with Base KMS for on-chain transparency logging
           phala deploy \
             -c docker-compose.yml \
             $DEPLOY_ARGS \
@@ -390,6 +491,9 @@ jobs:
             -e MOCK_API_URL="$MOCK_API_URL" \
             -e MOCK_API_TOKEN="$MOCK_API_TOKEN" \
             -e SIGNING_KEY="$SIGNING_KEY" \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DATABASE_REPLICA_URL="$DATABASE_REPLICA_URL" \
+            -e CVM_ID="$CVM_NAME" \
             -e DSTACK_DOCKER_REGISTRY="ghcr.io" \
             -e DSTACK_DOCKER_USERNAME="$GHCR_USERNAME" \
             -e DSTACK_DOCKER_PASSWORD="$GHCR_TOKEN" \
@@ -397,32 +501,23 @@ jobs:
 
           echo "deployment_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
-      - name: Skip deployment notice
-        if: steps.check.outputs.skip_deploy == 'true'
-        run: |
-          echo "## Deployment Skipped" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The compose hash has not changed since the last deployment." >> $GITHUB_STEP_SUMMARY
-          echo "Current deployment is already running the latest image." >> $GITHUB_STEP_SUMMARY
-
-      - name: Get deployment info
-        if: steps.check.outputs.skip_deploy != 'true'
-        env:
-          PHALA_CLOUD_API_KEY: ${{ secrets.PHALA_CLOUD_API_KEY }}
-        run: |
-          echo "Getting deployment status..."
-          phala cvms get toy-example-staging --json 2>&1 | tee deployment-info.json || true
-
       - name: Record deployment
-        if: steps.check.outputs.skip_deploy != 'true'
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 3-CVM Staging Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| CVM | Role | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| toy-pg-primary-staging | Postgres Primary | ${{ steps.deploy_pg_primary.outputs.deployed == 'true' && 'Deployed' || 'Existing' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| toy-pg-replica-staging | Postgres Replica | Deployed |" >> $GITHUB_STEP_SUMMARY
+          echo "| toy-example-staging | App Enclave | Deployed |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${{ steps.vars.outputs.enclave_image }}:${{ needs.build-enclave.outputs.sha_short }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Compose Hash | \`${{ steps.hash.outputs.compose_hash }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Deploy Time | ${{ steps.deploy.outputs.deployment_time }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PG Primary | ${{ steps.pg_primary_info.outputs.pg_host }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PG Replica | ${{ steps.pg_replica_info.outputs.pg_host }} |" >> $GITHUB_STEP_SUMMARY
 
   # Multi-machine release deployment (triggered by version tags)
   deploy-release:

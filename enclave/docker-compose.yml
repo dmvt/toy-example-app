@@ -25,6 +25,10 @@ services:
       - MOCK_API_URL=${MOCK_API_URL}
       - MOCK_API_TOKEN=${MOCK_API_TOKEN}
       - SIGNING_KEY=${SIGNING_KEY}
+      # Database connection (Postgres primary + replica on dstack VPN)
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_REPLICA_URL=${DATABASE_REPLICA_URL}
+      - CVM_ID=${CVM_ID}
     restart: unless-stopped
     logging:
       driver: "json-file"
