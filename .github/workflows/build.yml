@@ -335,6 +335,7 @@ jobs:
           DB_PASSWORD: ${{ steps.vars.outputs.db_password }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
         run: |
+          set -o pipefail
           CVM_NAME="toy-pg-primary-staging"
 
           if [ "${{ steps.check_pg_primary.outputs.exists }}" = "true" ]; then
@@ -402,6 +403,7 @@ jobs:
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
           PG_PRIMARY_VPN_IP: ${{ steps.pg_primary_info.outputs.pg_host }}
         run: |
+          set -o pipefail
           CVM_NAME="toy-pg-replica-staging"
 
           if [ "${{ steps.check_pg_replica.outputs.exists }}" = "true" ]; then
@@ -476,6 +478,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_PAT }}
           PRIVATE_KEY: ${{ secrets.TOY_DEPLOYER_PRIVATE_KEY }}
         run: |
+          set -o pipefail
           cd enclave
           CVM_NAME="toy-example-staging"
 
