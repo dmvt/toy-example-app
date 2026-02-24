@@ -138,7 +138,7 @@ app.post('/submit-data', async (req: Request, res: Response) => {
     res.json(result);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Submit data error:`, error);
-    res.status(500).json({ error: 'Failed to process user data' });
+    res.status(500).json({ error: 'Failed to process user data', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -158,7 +158,7 @@ app.post('/delete-data/:receiptId', async (req: Request, res: Response) => {
     res.json(result);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Delete data error:`, error);
-    res.status(500).json({ error: 'Failed to delete user data' });
+    res.status(500).json({ error: 'Failed to delete user data', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -170,7 +170,7 @@ app.get('/report', async (_req: Request, res: Response) => {
     res.json(report);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Report generation error:`, error);
-    res.status(500).json({ error: 'Failed to generate report' });
+    res.status(500).json({ error: 'Failed to generate report', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -181,7 +181,7 @@ app.get('/reports', async (_req: Request, res: Response) => {
     res.json({ reports });
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Report list error:`, error);
-    res.status(500).json({ error: 'Failed to list reports' });
+    res.status(500).json({ error: 'Failed to list reports', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
